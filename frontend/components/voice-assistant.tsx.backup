@@ -1,0 +1,833 @@
+"use client"
+
+import { useState, useRef, useEffect, useCallback } from "react"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Mic, MicOff, Loader2, Settings, Languages, History, Volume2 } from "lucide-react"
+import AudioVisualizer from "@/components/audio-visualizer"
+import MessageList from "@/components/message-list"
+import LanguageSelector from "@/components/language-selector"
+import SessionStats from "@/components/session-stats"
+import CameraDiseaseDetector from "@/components/camera-disease-detector"
+import { useVAD } from "@/hooks/use-vad"
+
+type SessionStatus = "idle" | "awaiting_language" | "active" | "listening" | "processing"
+
+interface Message {
+  id: string
+  text: string
+  audio?: string
+  sender: "user" | "assistant"
+  timestamp: Date
+  isStreaming?: boolean
+}
+
+export default function VoiceAssistant() {
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [status, setStatus] = useState<SessionStatus>("idle")
+  const [messages, setMessages] = useState<Message[]>([])
+  const [isRecording, setIsRecording] = useState(false)
+  const [audioLevel, setAudioLevel] = useState(0)
+  const [showLanguageSelector, setShowLanguageSelector] = useState(false)
+  const [selectedLanguage, setSelectedLanguage] = useState("English")
+  const [showStats, setShowStats] = useState(false)
+  const [currentTranscript, setCurrentTranscript] = useState("")
+  const [languageRetryCount, setLanguageRetryCount] = useState(0)
+  const [isAutoRecording, setIsAutoRecording] = useState(false)
+  const [showCamera, setShowCamera] = useState(false)
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const silenceStartTimeRef = useRef<number | null>(null)
+  const isRecordingRef = useRef<boolean>(false)
+  const animationFrameRef = useRef<number | null>(null)
+  const speechDetectedRef = useRef<boolean>(false) // Track if speech has been detected
+  const streamRef = useRef<MediaStream | null>(null)
+
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
+  // Silence detection threshold and duration
+  const SILENCE_THRESHOLD = 0.04 // Audio level below this is considered silence (room noise is ~0.025-0.03)
+  const SILENCE_DURATION = 2000 // 2 seconds of silence before auto-stop
+  const SPEECH_THRESHOLD = 0.06 // Audio level above this is considered speech
+
+  // Remove Web Speech API initialization (not needed for Option 2)
+  useEffect(() => {
+    return () => {
+      // Cleanup on unmount
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current)
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop())
+      }
+    }
+  }, [])
+
+  const startSession = async () => {
+    try {
+      setStatus("processing")
+      const response = await fetch(`${API_BASE}/voice/start-session`, {
+        method: "POST",
+      })
+
+      const data = await response.json()
+      setSessionId(data.session_id)
+      
+      const greetingMessage: Message = {
+        id: Date.now().toString(),
+        text: data.text,
+        audio: data.audio,
+        sender: "assistant",
+        timestamp: new Date(),
+        isStreaming: true,
+      }
+
+      setMessages([greetingMessage])
+
+      if (data.audio) {
+        await playAudio(data.audio)
+      }
+
+      // Wait for audio to finish, then auto-start recording for language selection
+      setTimeout(() => {
+        setMessages((prev) => prev.map((msg) => ({ ...msg, isStreaming: false })))
+        setStatus("awaiting_language")
+        setLanguageRetryCount(0)
+        
+        // Small delay to ensure audio finished, pass sessionId directly
+        setTimeout(() => {
+          console.log("[v0] Auto-starting language selection recording, sessionId:", data.session_id)
+          startRecordingForLanguage(data.session_id)
+        }, 1000)
+      }, 1000)
+    } catch (error) {
+      console.error("[v0] Error starting session:", error)
+      setStatus("idle")
+    }
+  }
+
+  const startRecording = async () => {
+    try {
+      setCurrentTranscript("")
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      audioContextRef.current = new AudioContext()
+      const source = audioContextRef.current.createMediaStreamSource(stream)
+      analyserRef.current = audioContextRef.current.createAnalyser()
+      analyserRef.current.fftSize = 256
+      source.connect(analyserRef.current)
+
+      mediaRecorderRef.current = new MediaRecorder(stream)
+      audioChunksRef.current = []
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data)
+      }
+
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" })
+        await sendAudioQuery(audioBlob)
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop())
+          streamRef.current = null
+        }
+      }
+
+      mediaRecorderRef.current.start()
+      setIsRecording(true)
+      isRecordingRef.current = true
+      setStatus("listening")
+      
+      visualizeAudio()
+      startSilenceDetection() // Auto-detect silence
+    } catch (error) {
+      console.error("[v0] Error starting recording:", error)
+    }
+  }
+
+  const startRecordingForLanguage = async (currentSessionId?: string) => {
+    try {
+      // Use passed sessionId or fallback to state
+      const activeSessionId = currentSessionId || sessionId
+      
+      if (!activeSessionId) {
+        console.error("[v0] No session ID for language selection - showing UI selector as fallback")
+        setShowLanguageSelector(true)
+        setStatus("awaiting_language")
+        setIsAutoRecording(false)
+        return
+      }
+      
+      console.log("[v0] Starting language recording with sessionId:", activeSessionId)
+      
+      setCurrentTranscript("")
+      setIsAutoRecording(true)
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      audioContextRef.current = new AudioContext()
+      const source = audioContextRef.current.createMediaStreamSource(stream)
+      analyserRef.current = audioContextRef.current.createAnalyser()
+      analyserRef.current.fftSize = 256
+      source.connect(analyserRef.current)
+
+      mediaRecorderRef.current = new MediaRecorder(stream)
+      audioChunksRef.current = []
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data)
+      }
+
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" })
+        await processLanguageSelection(audioBlob, activeSessionId)
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((track) => track.stop())
+          streamRef.current = null
+        }
+      }
+
+      mediaRecorderRef.current.start()
+      setIsRecording(true)
+      isRecordingRef.current = true
+      setStatus("listening")
+      
+      visualizeAudio()
+      startSilenceDetection() // Auto-detect silence
+    } catch (error) {
+      console.error("[v0] Error starting language recording:", error)
+      setIsAutoRecording(false)
+      // Fallback to UI selector after 3 retries
+      if (languageRetryCount >= 2) {
+        setShowLanguageSelector(true)
+        setStatus("awaiting_language")
+      }
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      console.log("[v0] Stopping recording...")
+      mediaRecorderRef.current.stop()
+      setIsRecording(false)
+      isRecordingRef.current = false
+      setStatus("processing")
+      setAudioLevel(0)
+      
+      // Clear silence detection
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current)
+        silenceTimeoutRef.current = null
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+      silenceStartTimeRef.current = null
+    }
+  }
+
+  const startSilenceDetection = () => {
+    if (!analyserRef.current) return
+
+    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+    speechDetectedRef.current = false // Reset speech detection
+    
+    const checkSilence = () => {
+      if (!analyserRef.current || !isRecordingRef.current) {
+        console.log("[v0] Stopping silence detection")
+        return
+      }
+
+      analyserRef.current.getByteFrequencyData(dataArray)
+      const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+      const normalizedLevel = average / 255
+
+      console.log("[v0] Audio level:", normalizedLevel.toFixed(3))
+
+      // First, check if speech has been detected
+      if (!speechDetectedRef.current && normalizedLevel > SPEECH_THRESHOLD) {
+        speechDetectedRef.current = true
+        console.log("[v0] Speech detected! Now monitoring for silence...")
+        silenceStartTimeRef.current = null // Reset silence timer
+      }
+
+      // Only start silence detection AFTER speech has been detected
+      if (speechDetectedRef.current) {
+        if (normalizedLevel < SILENCE_THRESHOLD) {
+          // Silence detected
+          if (silenceStartTimeRef.current === null) {
+            silenceStartTimeRef.current = Date.now()
+            console.log("[v0] Silence started (after speech)")
+          } else {
+            const silenceDuration = Date.now() - silenceStartTimeRef.current
+            if (silenceDuration >= SILENCE_DURATION) {
+              // Auto-stop recording after 2s of silence
+              console.log("[v0] Silence detected for 2s, auto-stopping recording")
+              stopRecording()
+              return
+            }
+          }
+        } else {
+          // Sound detected, reset silence timer
+          if (silenceStartTimeRef.current !== null) {
+            console.log("[v0] Sound detected, resetting silence timer")
+          }
+          silenceStartTimeRef.current = null
+        }
+      }
+
+      // Continue checking
+      animationFrameRef.current = requestAnimationFrame(checkSilence)
+    }
+
+    checkSilence()
+  }
+
+  const visualizeAudio = () => {
+    if (!analyserRef.current) return
+
+    const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount)
+
+    const updateLevel = () => {
+      if (!analyserRef.current || !isRecordingRef.current) return
+
+      analyserRef.current.getByteFrequencyData(dataArray)
+      const average = dataArray.reduce((a, b) => a + b) / dataArray.length
+      setAudioLevel(average / 255)
+
+      requestAnimationFrame(updateLevel)
+    }
+
+    updateLevel()
+  }
+
+  const sendAudioQuery = async (audioBlob: Blob) => {
+    if (!sessionId) return
+
+    try {
+      // Convert audio blob to base64
+      const reader = new FileReader()
+      reader.readAsDataURL(audioBlob)
+      
+      const base64Audio = await new Promise<string>((resolve) => {
+        reader.onloadend = () => {
+          const base64 = reader.result as string
+          // Remove the data URL prefix
+          const base64String = base64.split(',')[1]
+          resolve(base64String)
+        }
+      })
+
+      const response = await fetch(`${API_BASE}/voice/query`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          audio_base64: base64Audio,
+          language: selectedLanguage.toLowerCase(),
+        }),
+      })
+
+      const data = await response.json()
+
+      // Add user message (using backend transcription)
+      const userMessage: Message = {
+        id: Date.now().toString(),
+        text: data.user_text || "...",
+        sender: "user",
+        timestamp: new Date(),
+      }
+      
+      setMessages((prev) => [...prev, userMessage])
+
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: data.text_response || data.text,
+        audio: data.audio_base64 || data.audio,
+        sender: "assistant",
+        timestamp: new Date(),
+        isStreaming: true,
+      }
+
+      setMessages((prev) => [...prev, assistantMessage])
+
+      if (data.audio_base64 || data.audio) {
+        await playAudio(data.audio_base64 || data.audio)
+      }
+
+      setTimeout(() => {
+        setMessages((prev) => prev.map((msg) => ({ ...msg, isStreaming: false })))
+        
+        // Check if camera is required for disease detection
+        if (data.requires_camera) {
+          setShowCamera(true)
+        } else {
+          setStatus("active")
+        }
+      }, 500)
+
+      setCurrentTranscript("")
+    } catch (error) {
+      console.error("[v0] Error sending audio query:", error)
+      setStatus("active")
+      setCurrentTranscript("")
+    }
+  }
+
+  const processLanguageSelection = async (audioBlob: Blob, currentSessionId?: string) => {
+    // Use passed sessionId or fallback to state
+    const activeSessionId = currentSessionId || sessionId
+    
+    if (!activeSessionId) {
+      console.error("[v0] No session ID for language selection - showing UI selector as fallback")
+      setStatus("awaiting_language")
+      setIsAutoRecording(false)
+      setShowLanguageSelector(true)
+      return
+    }
+
+    try {
+      console.log("[v0] Processing language selection, sessionId:", activeSessionId, "audio blob size:", audioBlob.size)
+      setStatus("processing")
+      setIsAutoRecording(false)
+
+      // Convert audio blob to base64
+      const reader = new FileReader()
+      reader.readAsDataURL(audioBlob)
+      
+      const base64Audio = await new Promise<string>((resolve) => {
+        reader.onloadend = () => {
+          const base64 = reader.result as string
+          const base64String = base64.split(',')[1]
+          resolve(base64String)
+        }
+      })
+
+      console.log("[v0] Sending to backend for language detection...")
+
+      // Send to backend for language detection
+      const response = await fetch(`${API_BASE}/voice/detect-language`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          session_id: activeSessionId,
+          audio_base64: base64Audio,
+        }),
+      })
+
+      const data = await response.json()
+      console.log("[v0] Backend response:", data)
+
+      if (data.language_detected && data.language) {
+        // Language detected successfully
+        const languageMap: { [key: string]: string } = {
+          "english": "English",
+          "hindi": "Hindi",
+          "punjabi": "Punjabi",
+          "marathi": "Marathi",
+          "gujarati": "Gujarati",
+          "tamil": "Tamil",
+          "telugu": "Telugu",
+          "kannada": "Kannada",
+          "bengali": "Bengali",
+        }
+
+        const detectedLanguageName = languageMap[data.language] || "Hindi"
+        setSelectedLanguage(detectedLanguageName)
+
+        const confirmMessage: Message = {
+          id: Date.now().toString(),
+          text: data.text,
+          audio: data.audio,
+          sender: "assistant",
+          timestamp: new Date(),
+          isStreaming: true,
+        }
+
+        setMessages((prev) => [...prev, confirmMessage])
+
+        if (data.audio) {
+          await playAudio(data.audio)
+        }
+
+        setTimeout(() => {
+          setMessages((prev) => prev.map((msg) => ({ ...msg, isStreaming: false })))
+          setStatus("active")
+          setLanguageRetryCount(0)
+        }, 1000)
+      } else {
+        // Language not detected, retry
+        setLanguageRetryCount((prev) => prev + 1)
+        
+        if (languageRetryCount >= 2) {
+          // After 3 retries, show UI selector
+          setShowLanguageSelector(true)
+          setStatus("awaiting_language")
+          
+          const fallbackMessage: Message = {
+            id: Date.now().toString(),
+            text: "कृपया नीचे दिए गए विकल्पों से अपनी भाषा चुनें। / Please select your language from the options below.",
+            sender: "assistant",
+            timestamp: new Date(),
+          }
+          setMessages((prev) => [...prev, fallbackMessage])
+        } else {
+          // Retry voice detection
+          const retryMessage: Message = {
+            id: Date.now().toString(),
+            text: data.text || "कृपया फिर से अपनी भाषा बोलें। / Please speak your language again.",
+            audio: data.audio,
+            sender: "assistant",
+            timestamp: new Date(),
+            isStreaming: true,
+          }
+
+          setMessages((prev) => [...prev, retryMessage])
+
+          if (data.audio) {
+            await playAudio(data.audio)
+          }
+
+          setTimeout(() => {
+            setMessages((prev) => prev.map((msg) => ({ ...msg, isStreaming: false })))
+            setStatus("awaiting_language")
+            // Auto-start recording again for retry
+            setTimeout(() => {
+              startRecordingForLanguage()
+            }, 500)
+          }, 1000)
+        }
+      }
+    } catch (error) {
+      console.error("[v0] Error processing language selection:", error)
+      setLanguageRetryCount((prev) => prev + 1)
+      
+      if (languageRetryCount >= 2) {
+        setShowLanguageSelector(true)
+        setStatus("awaiting_language")
+      } else {
+        // Retry
+        setTimeout(() => {
+          startRecordingForLanguage()
+        }, 1000)
+      }
+    }
+  }
+
+  const playAudio = async (base64Audio: string) => {
+    return new Promise((resolve, reject) => {
+      const audio = new Audio(`data:audio/mp3;base64,${base64Audio}`)
+      audio.onended = () => resolve(true)
+      audio.onerror = (e) => {
+        console.error("Audio playback error:", e)
+        reject(e)
+      }
+      audio.play().catch(e => {
+        console.error("Audio play error:", e)
+        reject(e)
+      })
+    })
+  }
+
+  const handleLanguageSelection = async (languageName: string) => {
+    if (!sessionId) return
+
+    try {
+      setStatus("processing")
+      setShowLanguageSelector(false)
+
+      // Map language name to code
+      const languageMap: { [key: string]: string } = {
+        "English": "english",
+        "Hindi": "hindi",
+        "Punjabi": "punjabi",
+        "Marathi": "marathi",
+        "Gujarati": "gujarati",
+        "Tamil": "tamil",
+        "Telugu": "telugu",
+        "Kannada": "kannada",
+        "Bengali": "bengali",
+        "Malayalam": "malayalam"
+      }
+
+      const languageCode = languageMap[languageName] || "hindi"
+
+      const response = await fetch(`${API_BASE}/voice/select-language`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          session_id: sessionId,
+          language: languageCode,
+        }),
+      })
+
+      const data = await response.json()
+
+      setSelectedLanguage(languageName)
+
+      const confirmMessage: Message = {
+        id: Date.now().toString(),
+        text: data.text,
+        audio: data.audio,
+        sender: "assistant",
+        timestamp: new Date(),
+        isStreaming: true,
+      }
+
+      setMessages((prev) => [...prev, confirmMessage])
+
+      if (data.audio) {
+        await playAudio(data.audio)
+      }
+
+      setTimeout(() => {
+        setMessages((prev) => prev.map((msg) => ({ ...msg, isStreaming: false })))
+        setStatus("active")
+      }, 1000)
+    } catch (error) {
+      console.error("[v0] Error selecting language:", error)
+      setStatus("awaiting_language")
+      setShowLanguageSelector(true)
+    }
+  }
+
+  const handleCameraDiagnosisComplete = async (diagnosis: string, audio: string) => {
+    // Add diagnosis message
+    const diagnosisMessage: Message = {
+      id: Date.now().toString(),
+      text: diagnosis,
+      audio: audio,
+      sender: "assistant",
+      timestamp: new Date(),
+      isStreaming: true,
+    }
+
+    setMessages((prev) => [...prev, diagnosisMessage])
+
+    // Play diagnosis audio
+    if (audio) {
+      await playAudio(audio)
+    }
+
+    setTimeout(() => {
+      setMessages((prev) => prev.map((msg) => ({ ...msg, isStreaming: false })))
+      setStatus("active")
+      setShowCamera(false)
+    }, 500)
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-primary/10 via-background via-50% to-accent/10 animate-gradient flex items-center justify-center p-4 relative overflow-hidden">
+      {showCamera && sessionId && (
+        <CameraDiseaseDetector
+          sessionId={sessionId}
+          language={selectedLanguage.toLowerCase()}
+          onClose={() => {
+            setShowCamera(false)
+            setStatus("active")
+          }}
+          onDiagnosisComplete={handleCameraDiagnosisComplete}
+        />
+      )}
+
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-20 left-10 w-72 h-72 bg-primary/20 rounded-full blur-3xl animate-float" />
+        <div
+          className="absolute bottom-20 right-10 w-96 h-96 bg-accent/20 rounded-full blur-3xl animate-float"
+          style={{ animationDelay: "1s" }}
+        />
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/10 rounded-full blur-3xl animate-pulse" />
+      </div>
+
+      <div className="w-full max-w-5xl relative z-10">
+        <Card className="glass shadow-2xl overflow-hidden border-2">
+          <div className="relative bg-gradient-to-r from-primary via-primary/90 to-accent p-8 border-b border-white/20">
+            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS1vcGFjaXR5PSIwLjEiIHN0cm9rZS13aWR0aD0iMSIvPjwvcGF0dGVybj48L2RlZnM+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsbD0idXJsKCNncmlkKSIvPjwvc3ZnPg==')] opacity-30" />
+
+            <div className="relative flex items-center justify-between">
+              <div className="flex-1">
+                <h1 className="text-4xl font-bold text-primary-foreground text-balance mb-2">किसान सहायक</h1>
+                <p className="text-primary-foreground/90 text-lg text-pretty">AI-Powered Farming Intelligence</p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-primary-foreground hover:bg-white/20 h-10 w-10"
+                  onClick={() => setShowLanguageSelector(!showLanguageSelector)}
+                >
+                  <Languages className="h-5 w-5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-primary-foreground hover:bg-white/20 h-10 w-10"
+                  onClick={() => setShowStats(!showStats)}
+                >
+                  <History className="h-5 w-5" />
+                </Button>
+                <Button variant="ghost" size="icon" className="text-primary-foreground hover:bg-white/20 h-10 w-10">
+                  <Settings className="h-5 w-5" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/20 backdrop-blur-sm">
+              <Languages className="h-4 w-4 text-primary-foreground" />
+              <span className="text-sm font-medium text-primary-foreground">{selectedLanguage}</span>
+            </div>
+          </div>
+
+          {showLanguageSelector && (
+            <LanguageSelector
+              selectedLanguage={selectedLanguage}
+              onSelectLanguage={async (lang) => {
+                await handleLanguageSelection(lang)
+              }}
+              onClose={() => setShowLanguageSelector(false)}
+            />
+          )}
+
+          <div className="p-8 space-y-8">
+            {status === "idle" ? (
+              <div className="flex flex-col items-center justify-center py-16 space-y-8">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-primary/30 rounded-full blur-3xl animate-pulse-ring" />
+                  <div className="absolute inset-0 bg-accent/20 rounded-full blur-2xl animate-ripple" />
+
+                  <Button
+                    size="lg"
+                    onClick={startSession}
+                    className="relative h-40 w-40 rounded-full text-xl font-bold shadow-2xl hover:shadow-primary/50 transition-all duration-500 hover:scale-110 animate-glow group"
+                  >
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="relative">
+                        <Mic className="h-16 w-16 transition-transform group-hover:scale-110" />
+                        <div className="absolute inset-0 bg-white/20 rounded-full blur-xl group-hover:blur-2xl transition-all" />
+                      </div>
+                      <span className="text-lg">Start</span>
+                    </div>
+                  </Button>
+                </div>
+
+                <div className="text-center space-y-4 max-w-2xl">
+                  <p className="text-lg text-muted-foreground text-pretty">
+                    Tap the button to begin your conversation with the AI farming assistant
+                  </p>
+
+                  <div className="grid grid-cols-3 gap-4 mt-8">
+                    <div className="p-4 rounded-xl bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/20">
+                      <Volume2 className="h-8 w-8 text-primary mx-auto mb-2" />
+                      <p className="text-sm font-medium">Voice First</p>
+                      <p className="text-xs text-muted-foreground mt-1">Natural conversation</p>
+                    </div>
+                    <div className="p-4 rounded-xl bg-gradient-to-br from-accent/10 to-accent/5 border border-accent/20">
+                      <Languages className="h-8 w-8 text-accent mx-auto mb-2" />
+                      <p className="text-sm font-medium">Multi-lingual</p>
+                      <p className="text-xs text-muted-foreground mt-1">10+ languages</p>
+                    </div>
+                    <div className="p-4 rounded-xl bg-gradient-to-br from-primary/10 to-accent/10 border border-primary/20">
+                      <History className="h-8 w-8 text-primary mx-auto mb-2" />
+                      <p className="text-sm font-medium">Smart Memory</p>
+                      <p className="text-xs text-muted-foreground mt-1">Context aware</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+                {showStats && <SessionStats messages={messages} sessionId={sessionId} />}
+
+                <MessageList
+                  messages={messages}
+                  isThinking={status === "processing"}
+                  isListening={status === "listening"}
+                  currentTranscript=""
+                />
+
+                {(status === "listening" || status === "processing") && (
+                  <div className="space-y-4">
+                    <AudioVisualizer isActive={status === "listening"} level={audioLevel} />
+                    <div className="flex items-center justify-center gap-2">
+                      <div
+                        className={`h-2 w-2 rounded-full ${status === "listening" ? "bg-destructive animate-pulse" : "bg-primary animate-pulse"}`}
+                      />
+                      <span className="text-sm font-medium">
+                        {status === "listening" ? "Recording..." : "Processing..."}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-col items-center gap-6 pt-6">
+                  <div className="relative">
+                    {isRecording && (
+                      <>
+                        <div className="absolute inset-0 bg-destructive/30 rounded-full blur-2xl animate-pulse-ring" />
+                        <div className="absolute inset-0 bg-destructive/20 rounded-full blur-xl animate-ripple" />
+                      </>
+                    )}
+
+                    {status === "processing" ? (
+                      <Button size="lg" disabled className="h-24 w-24 rounded-full shadow-xl relative">
+                        <Loader2 className="h-10 w-10 animate-spin" />
+                      </Button>
+                    ) : (
+                      <Button
+                        size="lg"
+                        onClick={isRecording ? stopRecording : startRecording}
+                        className={`h-24 w-24 rounded-full transition-all duration-500 shadow-xl relative group ${
+                          isRecording
+                            ? "bg-destructive hover:bg-destructive/90 animate-glow"
+                            : "hover:scale-110 hover:shadow-2xl"
+                        }`}
+                      >
+                        {isRecording ? (
+                          <MicOff className="h-10 w-10 transition-transform group-hover:scale-110" />
+                        ) : (
+                          <Mic className="h-10 w-10 transition-transform group-hover:scale-110" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="text-center space-y-2">
+                    <p className="text-base font-medium">
+                      {status === "awaiting_language" && isAutoRecording && "Listening for your language... (Speak now)"}
+                      {status === "awaiting_language" && !isAutoRecording && "Please select your preferred language"}
+                      {status === "listening" && "Listening... (Speak clearly, will auto-stop after 1.5s silence)"}
+                      {status === "processing" && "Processing your request..."}
+                      {status === "active" && "Tap the microphone to speak"}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {status === "active" && "Ask me anything about farming, crops, or weather"}
+                      {status === "listening" && "Release to auto-send when you finish speaking"}
+                    </p>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </Card>
+      </div>
+    </div>
+  )
+}
