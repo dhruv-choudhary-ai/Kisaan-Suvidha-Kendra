@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, memo, useCallback } from "react"
 import { Volume2, User, Bot, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
@@ -22,17 +22,22 @@ interface MessageListProps {
   currentTranscript?: string
 }
 
-export default function MessageList({ messages, isThinking, isListening, isSpeaking, currentTranscript }: MessageListProps) {
+function MessageList({ messages, isThinking, isListening, isSpeaking, currentTranscript }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, currentTranscript])
+    // Use requestAnimationFrame for smoother scrolling
+    const scrollToBottom = () => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" })
+    }
+    requestAnimationFrame(scrollToBottom)
+  }, [messages.length]) // Only depend on message count, not content
 
-  const playAudio = (base64Audio: string) => {
+  const playAudio = useCallback((base64Audio: string) => {
     const audio = new Audio(`data:audio/mp3;base64,${base64Audio}`)
-    audio.play()
-  }
+    audio.preload = 'auto' // Preload for faster playback
+    audio.play().catch(console.error)
+  }, [])
 
   const TypingIndicator = () => (
     <div className="flex gap-3 animate-in fade-in slide-in-from-bottom-4 duration-300">
@@ -85,31 +90,31 @@ export default function MessageList({ messages, isThinking, isListening, isSpeak
   if (messages.length === 0 && !isThinking && !isListening) return null
 
   return (
-    <div className="space-y-6 max-h-[500px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
+    <div className="space-y-4 max-h-[450px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-primary/20 scrollbar-track-transparent">
       {messages.map((message, index) => (
         <div
           key={message.id}
-          className={`flex gap-3 ${message.sender === "user" ? "flex-row-reverse" : "flex-row"} animate-in fade-in slide-in-from-bottom-4 duration-500`}
-          style={{ animationDelay: `${index * 50}ms` }}
+          className={`flex gap-3 ${message.sender === "user" ? "flex-row-reverse" : "flex-row"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
+          style={{ animationDelay: `${Math.min(index * 30, 300)}ms` }} // Cap delay for better performance
         >
           <Avatar
-            className={`h-10 w-10 shrink-0 border-2 ${message.sender === "user" ? "bg-gradient-to-br from-green-600 to-green-700 border-green-200" : "bg-gradient-to-br from-green-600 to-emerald-600 border-green-200"}`}
+            className={`h-9 w-9 shrink-0 border-2 ${message.sender === "user" ? "bg-gradient-to-br from-green-600 to-green-700 border-green-200" : "bg-gradient-to-br from-green-600 to-emerald-600 border-green-200"}`}
           >
             <AvatarFallback className="text-white">
-              {message.sender === "user" ? <User className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
+              {message.sender === "user" ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
             </AvatarFallback>
           </Avatar>
 
-          <div className={`flex flex-col gap-2 max-w-[75%] ${message.sender === "user" ? "items-end" : "items-start"}`}>
+          <div className={`flex flex-col gap-1.5 max-w-[75%] ${message.sender === "user" ? "items-end" : "items-start"}`}>
             <div
-              className={`rounded-2xl px-5 py-3.5 shadow-lg transition-all duration-300 hover:shadow-xl ${
+              className={`rounded-2xl px-4 py-3 shadow-md transition-all duration-200 hover:shadow-lg ${
                 message.sender === "user"
-                  ? "bg-gradient-to-br from-green-600 to-green-700 text-white rounded-tr-sm border-2 border-green-300/30"
-                  : "bg-gradient-to-br from-green-50 to-emerald-50 text-gray-800 border-2 border-green-200/50 rounded-tl-sm"
+                  ? "bg-gradient-to-br from-green-600 to-green-700 text-white rounded-tr-sm border border-green-300/30"
+                  : "bg-gradient-to-br from-green-50 to-emerald-50 text-gray-800 border border-green-200/50 rounded-tl-sm"
               }`}
             >
               <p
-                className={`text-pretty leading-relaxed text-[15px] ${message.isStreaming ? "animate-in fade-in duration-300" : ""}`}
+                className={`text-pretty leading-relaxed text-sm ${message.isStreaming ? "animate-in fade-in duration-200" : ""}`}
               >
                 {message.text}
               </p>
@@ -119,15 +124,15 @@ export default function MessageList({ messages, isThinking, isListening, isSpeak
                   variant="ghost"
                   size="sm"
                   onClick={() => playAudio(message.audio!)}
-                  className="mt-3 h-8 px-3 hover:bg-green-200/50 rounded-full transition-all hover:scale-105 text-green-700"
+                  className="mt-2 h-7 px-2.5 hover:bg-green-200/50 rounded-full transition-all hover:scale-105 text-green-700"
                 >
-                  <Volume2 className="h-3.5 w-3.5 mr-1.5" />
-                  <span className="text-xs font-medium">Play Audio</span>
+                  <Volume2 className="h-3 w-3 mr-1" />
+                  <span className="text-xs font-medium">Play</span>
                 </Button>
               )}
             </div>
 
-            <p className="text-xs text-gray-500 px-2 flex items-center gap-1.5">
+            <p className="text-xs text-gray-500 px-2 flex items-center gap-1">
               <span className="h-1 w-1 rounded-full bg-green-400" />
               {message.timestamp.toLocaleTimeString([], {
                 hour: "2-digit",
@@ -146,3 +151,6 @@ export default function MessageList({ messages, isThinking, isListening, isSpeak
     </div>
   )
 }
+
+// Export memoized component
+export default memo(MessageList)
