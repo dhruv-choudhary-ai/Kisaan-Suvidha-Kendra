@@ -20,13 +20,15 @@ class Config:
     ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
     ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
     OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
+    AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY")
+    AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION")
     
     # Frontend Configuration
     FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
     
     # Voice Configuration
     ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # Default Hindi voice
-    TTS_PROVIDER = os.getenv("TTS_PROVIDER", "gtts")  # Options: "elevenlabs" or "gtts"
+    TTS_PROVIDER = os.getenv("TTS_PROVIDER", "gtts")  # Options: "elevenlabs", "gtts", or "azure"
     
     # Language Configuration
     SUPPORTED_LANGUAGES = {

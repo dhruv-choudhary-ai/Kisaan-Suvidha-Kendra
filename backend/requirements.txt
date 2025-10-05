@@ -32,3 +32,4 @@ elevenlabs
 aiohttp
 gTTS
 langchain-google-genai
+azure-cognitiveservices-speech

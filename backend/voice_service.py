@@ -10,6 +10,7 @@ from gtts import gTTS
 import io
 from config import Config
 import logging
+import azure.cognitiveservices.speech as speechsdk
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,13 @@ logger = logging.getLogger(__name__)
 if Config.TTS_PROVIDER == "elevenlabs":
     set_api_key(Config.ELEVENLABS_API_KEY)
 aai.settings.api_key = Config.ASSEMBLYAI_API_KEY
+
+# Initialize Azure Speech SDK if using Azure
+if Config.TTS_PROVIDER == "azure" and Config.AZURE_SPEECH_KEY and Config.AZURE_SPEECH_REGION:
+    speech_config = speechsdk.SpeechConfig(
+        subscription=Config.AZURE_SPEECH_KEY, 
+        region=Config.AZURE_SPEECH_REGION
+    )
 
 class VoiceService:
     def __init__(self):
@@ -76,6 +84,55 @@ class VoiceService:
             'telugu': 'te',
             'kannada': 'kn',
             'bengali': 'bn'
+        }
+        
+        # Azure Speech Service voice configurations
+        self.azure_voice_configs = {
+            'hindi': {
+                'voice_name': 'hi-IN-SwaraNeural',
+                'language': 'hi-IN',
+                'style': 'general'
+            },
+            'english': {
+                'voice_name': 'en-US-JennyNeural',
+                'language': 'en-US',
+                'style': 'general'
+            },
+            'punjabi': {
+                'voice_name': 'pa-IN-GaganNeural',
+                'language': 'pa-IN',
+                'style': 'general'
+            },
+            'marathi': {
+                'voice_name': 'mr-IN-AarohiNeural',
+                'language': 'mr-IN',
+                'style': 'general'
+            },
+            'gujarati': {
+                'voice_name': 'gu-IN-DhwaniNeural',
+                'language': 'gu-IN',
+                'style': 'general'
+            },
+            'tamil': {
+                'voice_name': 'ta-IN-PallaviNeural',
+                'language': 'ta-IN',
+                'style': 'general'
+            },
+            'telugu': {
+                'voice_name': 'te-IN-ShrutiNeural',
+                'language': 'te-IN',
+                'style': 'general'
+            },
+            'kannada': {
+                'voice_name': 'kn-IN-SapnaNeural',
+                'language': 'kn-IN',
+                'style': 'general'
+            },
+            'bengali': {
+                'voice_name': 'bn-IN-BashkarNeural',
+                'language': 'bn-IN',
+                'style': 'general'
+            }
         }
     
     async def transcribe_audio(self, audio_base64: str, language: str = "hindi") -> str:
@@ -160,6 +217,8 @@ class VoiceService:
         try:
             if self.tts_provider == "gtts":
                 return await self._gtts_text_to_speech(text, language)
+            elif self.tts_provider == "azure":
+                return await self._azure_text_to_speech(text, language)
             else:
                 return await self._elevenlabs_text_to_speech(text, language)
         except Exception as e:
@@ -236,6 +295,69 @@ class VoiceService:
             
         except Exception as e:
             logger.error(f"Error in ElevenLabs TTS: {str(e)}")
+            return ""
+    
+    async def _azure_text_to_speech(self, text: str, language: str = "hindi") -> str:
+        """
+        Convert text to speech using Azure Speech Service (high quality, pay-per-use)
+        
+        Args:
+            text: Text to convert to speech
+            language: Language for TTS
+            
+        Returns:
+            Base64 encoded audio data
+        """
+        try:
+            if not Config.AZURE_SPEECH_KEY or not Config.AZURE_SPEECH_REGION:
+                logger.error("Azure Speech Service credentials not configured")
+                return ""
+                
+            # Get voice configuration for the language
+            voice_config = self.azure_voice_configs.get(language, self.azure_voice_configs['hindi'])
+            
+            # Configure Speech SDK
+            speech_config = speechsdk.SpeechConfig(
+                subscription=Config.AZURE_SPEECH_KEY, 
+                region=Config.AZURE_SPEECH_REGION
+            )
+            speech_config.speech_synthesis_voice_name = voice_config['voice_name']
+            speech_config.set_speech_synthesis_output_format(speechsdk.SpeechSynthesisOutputFormat.Audio16Khz32KBitRateMonoMp3)
+            
+            # Create synthesizer with memory stream output
+            synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
+            
+            # Create SSML for better control
+            ssml = f"""
+            <speak version='1.0' xml:lang='{voice_config['language']}'>
+                <voice name='{voice_config['voice_name']}'>
+                    <prosody rate='medium' pitch='medium'>
+                        {text}
+                    </prosody>
+                </voice>
+            </speak>
+            """
+            
+            # Synthesize speech
+            result = synthesizer.speak_ssml_async(ssml).get()
+            
+            if result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted:
+                # Convert audio data to base64
+                audio_base64 = base64.b64encode(result.audio_data).decode('utf-8')
+                logger.info(f"✅ Azure Speech audio generated ({len(audio_base64)} chars)")
+                return audio_base64
+            elif result.reason == speechsdk.ResultReason.Canceled:
+                cancellation_details = result.cancellation_details
+                logger.error(f"Azure Speech synthesis canceled: {cancellation_details.reason}")
+                if cancellation_details.error_details:
+                    logger.error(f"Error details: {cancellation_details.error_details}")
+                return ""
+            else:
+                logger.error(f"Azure Speech synthesis failed: {result.reason}")
+                return ""
+                
+        except Exception as e:
+            logger.error(f"Error in Azure Speech TTS: {str(e)}")
             return ""
     
     def get_greeting_message(self, language: str = "hindi") -> str:

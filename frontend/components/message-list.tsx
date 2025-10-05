@@ -132,7 +132,7 @@ function MessageList({ messages, isThinking, isListening, isSpeaking, currentTra
               )}
             </div>
 
-            <p className="text-xs text-gray-500 px-2 flex items-center gap-1">
+            <p className="text-xs text-gray-500 px-2 flex items-center gap-1 hidden">
               <span className="h-1 w-1 rounded-full bg-green-400" />
               {message.timestamp.toLocaleTimeString([], {
                 hour: "2-digit",
