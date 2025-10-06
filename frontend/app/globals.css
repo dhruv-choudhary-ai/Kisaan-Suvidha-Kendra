@@ -297,3 +297,72 @@
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
+
+/* Enhanced markdown rendering styles for agricultural responses */
+.prose {
+  color: inherit;
+}
+
+.prose strong {
+  font-weight: 700;
+}
+
+.prose em {
+  font-style: italic;
+}
+
+/* Better emoji rendering */
+.prose p,
+.prose li {
+  line-height: 1.7;
+}
+
+/* Ensure emojis are properly sized and aligned */
+.prose img.emoji {
+  display: inline;
+  height: 1.2em;
+  width: 1.2em;
+  margin: 0 0.05em 0 0.1em;
+  vertical-align: -0.1em;
+}
+
+/* List items with bullets */
+.prose ul > li::before {
+  content: "•";
+  color: rgb(34, 197, 94);
+  font-weight: bold;
+  display: inline-block;
+  width: 1em;
+  margin-left: -1em;
+  margin-right: 0.5em;
+}
+
+/* Spacing for better readability */
+.prose > * + * {
+  margin-top: 0.5em;
+}
+
+.prose h1 + *,
+.prose h2 + *,
+.prose h3 + * {
+  margin-top: 0.25em;
+}
+
+/* Code blocks */
+.prose pre {
+  background-color: rgb(240, 253, 244);
+  border: 1px solid rgb(187, 247, 208);
+  border-radius: 0.375rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+}
+
+/* Inline code */
+.prose :not(pre) > code {
+  background-color: rgb(220, 252, 231);
+  color: rgb(22, 101, 52);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+}
+

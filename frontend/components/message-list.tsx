@@ -4,6 +4,9 @@ import { useEffect, useRef, memo, useCallback } from "react"
 import { Volume2, User, Bot, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import rehypeSanitize from 'rehype-sanitize'
 
 interface Message {
   id: string
@@ -113,11 +116,47 @@ function MessageList({ messages, isThinking, isListening, isSpeaking, currentTra
                   : "bg-gradient-to-br from-green-50 to-emerald-50 text-gray-800 border border-green-200/50 rounded-tl-sm"
               }`}
             >
-              <p
-                className={`text-pretty leading-relaxed text-sm ${message.isStreaming ? "animate-in fade-in duration-200" : ""}`}
-              >
-                {message.text}
-              </p>
+              {message.sender === "assistant" ? (
+                <div className={`prose prose-sm max-w-none ${message.isStreaming ? "animate-in fade-in duration-200" : ""}`}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeSanitize]}
+                    components={{
+                      // Style headers
+                      h1: ({node, ...props}) => <h1 className="text-lg font-bold text-green-800 mt-2 mb-1" {...props} />,
+                      h2: ({node, ...props}) => <h2 className="text-base font-bold text-green-700 mt-2 mb-1" {...props} />,
+                      h3: ({node, ...props}) => <h3 className="text-sm font-bold text-green-700 mt-1 mb-0.5" {...props} />,
+                      // Style paragraphs
+                      p: ({node, ...props}) => <p className="text-sm leading-relaxed mb-2 last:mb-0 text-gray-800" {...props} />,
+                      // Style lists
+                      ul: ({node, ...props}) => <ul className="list-none space-y-1 my-2" {...props} />,
+                      ol: ({node, ...props}) => <ol className="list-decimal list-inside space-y-1 my-2 ml-2" {...props} />,
+                      li: ({node, ...props}) => <li className="text-sm leading-relaxed text-gray-800" {...props} />,
+                      // Style strong/bold
+                      strong: ({node, ...props}) => <strong className="font-bold text-green-800" {...props} />,
+                      // Style emphasis/italic
+                      em: ({node, ...props}) => <em className="italic text-gray-700" {...props} />,
+                      // Style code
+                      code: ({node, inline, ...props}: any) => 
+                        inline ? (
+                          <code className="bg-green-100 text-green-800 px-1 py-0.5 rounded text-xs font-mono" {...props} />
+                        ) : (
+                          <code className="block bg-green-100 text-green-800 p-2 rounded text-xs font-mono my-1 overflow-x-auto" {...props} />
+                        ),
+                      // Style links
+                      a: ({node, ...props}) => <a className="text-green-600 hover:text-green-700 underline font-medium" target="_blank" rel="noopener noreferrer" {...props} />,
+                      // Style blockquotes
+                      blockquote: ({node, ...props}) => <blockquote className="border-l-4 border-green-500 pl-3 my-2 italic text-gray-700" {...props} />,
+                    }}
+                  >
+                    {message.text}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <p className={`text-pretty leading-relaxed text-sm ${message.isStreaming ? "animate-in fade-in duration-200" : ""}`}>
+                  {message.text}
+                </p>
+              )}
 
               {message.audio && message.sender === "assistant" && (
                 <Button
