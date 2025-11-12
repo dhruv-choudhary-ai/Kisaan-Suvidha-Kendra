@@ -33,3 +33,6 @@ aiohttp
 gTTS
 langchain-google-genai
 azure-cognitiveservices-speech
+duckduckgo-search
+httpx
+google-search-results

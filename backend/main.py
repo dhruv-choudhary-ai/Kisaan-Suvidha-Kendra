@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
@@ -11,10 +11,13 @@ from models import (
     FarmerProfile, CropInformation, SessionData
 )
 from voice_service import voice_service
+from realtime_voice_service import realtime_voice_service
 from langgraph_kisaan_agents import build_kisaan_graph
 from crop_disease_camera import CropDiseaseCamera
 from typing import Dict
 import re
+import json
+import base64
 
 app = FastAPI(title="Kisaan Voice Assistant API")
 logging.basicConfig(level=logging.INFO)
@@ -531,6 +534,211 @@ async def diagnose_crop_disease(request: dict):
 @app.get("/health")
 def health_check():
     return {"status": "healthy", "service": "Kisaan Voice Assistant"}
+
+
+@app.websocket("/ws/voice")
+async def websocket_voice_endpoint(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time voice interaction
+    
+    Protocol:
+    - Client connects and sends: {"type": "start", "language": "hindi", "session_id": "..."}
+    - Client streams audio: {"type": "audio", "data": "base64_encoded_pcm"}
+    - Server sends partial transcripts: {"type": "transcript", "text": "...", "is_final": false}
+    - Server sends final transcripts: {"type": "transcript", "text": "...", "is_final": true}
+    - Server sends AI response: {"type": "response", "text": "...", "audio": "base64"}
+    - Client sends: {"type": "stop"} to end
+    """
+    await websocket.accept()
+    logger.info("🔌 WebSocket connection established")
+    
+    session_id = None
+    language = "hindi"
+    graph = build_kisaan_graph()
+    
+    async def on_transcript(text: str, is_final: bool):
+        """Handle transcript from AssemblyAI"""
+        try:
+            # Send transcript to client
+            await websocket.send_json({
+                "type": "transcript",
+                "text": text,
+                "is_final": is_final
+            })
+            
+            # If final transcript, process with LangGraph
+            if is_final and text.strip():
+                logger.info(f"Processing final transcript: {text}")
+                
+                # Get session
+                session = active_sessions.get(session_id)
+                if not session:
+                    logger.warning(f"Session {session_id} not found")
+                    return
+                
+                # Detect language switch
+                detected_lang = voice_service.detect_language_from_speech(text)
+                if detected_lang:
+                    language = detected_lang
+                    session.language = language
+                    logger.info(f"Language switched to: {language}")
+                
+                # Create state for LangGraph
+                state = {
+                    "user_query": text,
+                    "language": language,
+                    "location": session.farmer_profile.location if session.farmer_profile else {},
+                    "query_type": "",
+                    "parsed_entities": {},
+                    "crop_info": [],
+                    "weather_data": {},
+                    "market_data": [],
+                    "government_schemes": [],
+                    "pest_disease_info": {},
+                    "fertilizer_info": {},
+                    "pesticide_info": {},
+                    "application_guide_info": {},
+                    "irrigation_info": {},
+                    "soil_health_info": {},
+                    "crop_calendar_info": {},
+                    "cost_info": {},
+                    "emergency_info": {},
+                    "expert_contact_info": {},
+                    "recommendations": [],
+                    "final_response": "",
+                    "requires_camera": False,
+                    "seasonal_info": {},
+                    "agent_flow": [],
+                    "requires_images": False,
+                    "image_queries": [],
+                    "image_urls": [],
+                    "image_context": "",
+                    "layout_type": "chat-only"
+                }
+                
+                # Run through agent graph
+                logger.info("Running query through agent graph...")
+                result = await graph.ainvoke(state)
+                
+                # Get response
+                response_text = result.get("final_response", "")
+                requires_camera = result.get("requires_camera", False)
+                image_urls = result.get("image_urls", [])
+                requires_images = result.get("requires_images", False)
+                
+                logger.info(f"Agent response: {response_text[:100]}...")
+                
+                # Update session history
+                session.conversation_history.append({
+                    "user": text,
+                    "assistant": response_text,
+                    "timestamp": datetime.now().isoformat(),
+                    "query_type": result.get("query_type", "unknown")
+                })
+                session.last_activity = datetime.now().isoformat()
+                
+                # Convert response to speech
+                response_audio = await voice_service.text_to_speech(response_text, language)
+                
+                # Send response to client
+                await websocket.send_json({
+                    "type": "response",
+                    "text": response_text,
+                    "audio": response_audio,
+                    "requires_camera": requires_camera,
+                    "requires_images": requires_images,
+                    "image_urls": image_urls,
+                    "language": language
+                })
+                
+        except Exception as e:
+            logger.error(f"Error processing transcript: {str(e)}")
+            await websocket.send_json({
+                "type": "error",
+                "message": str(e)
+            })
+    
+    async def on_error(error_msg: str):
+        """Handle transcription errors"""
+        logger.error(f"Transcription error: {error_msg}")
+        await websocket.send_json({
+            "type": "error",
+            "message": error_msg
+        })
+    
+    try:
+        # Set callbacks for realtime service
+        realtime_voice_service.set_callbacks(
+            on_transcript=on_transcript,
+            on_error=on_error
+        )
+        
+        while True:
+            try:
+                # Receive message from client
+                message = await websocket.receive_json()
+                msg_type = message.get("type")
+                
+                if msg_type == "start":
+                    # Start new session
+                    session_id = message.get("session_id") or str(uuid.uuid4())
+                    language = message.get("language", "hindi")
+                    
+                    # Create or get session
+                    if session_id not in active_sessions:
+                        active_sessions[session_id] = SessionData(
+                            session_id=session_id,
+                            language=language,
+                            conversation_history=[],
+                            last_activity=datetime.now().isoformat()
+                        )
+                    
+                    # Set language and start transcription
+                    realtime_voice_service.set_language(language)
+                    await realtime_voice_service.start()
+                    
+                    logger.info(f"Started real-time session: {session_id} ({language})")
+                    
+                    await websocket.send_json({
+                        "type": "started",
+                        "session_id": session_id,
+                        "language": language
+                    })
+                
+                elif msg_type == "audio":
+                    # Receive audio data and stream to AssemblyAI
+                    audio_base64 = message.get("data")
+                    if audio_base64:
+                        # Decode base64 audio
+                        audio_bytes = base64.b64decode(audio_base64)
+                        # Send to AssemblyAI
+                        await realtime_voice_service.send_audio(audio_bytes)
+                
+                elif msg_type == "stop":
+                    # Stop transcription
+                    await realtime_voice_service.stop()
+                    logger.info("Stopped real-time transcription")
+                    
+                    await websocket.send_json({
+                        "type": "stopped"
+                    })
+                    break
+                
+            except WebSocketDisconnect:
+                logger.info("WebSocket disconnected")
+                break
+            except Exception as e:
+                logger.error(f"Error in WebSocket loop: {str(e)}")
+                await websocket.send_json({
+                    "type": "error",
+                    "message": str(e)
+                })
+    
+    finally:
+        # Clean up
+        await realtime_voice_service.stop()
+        logger.info("🔌 WebSocket connection closed")
+
 
 if __name__ == "__main__":
     import uvicorn
