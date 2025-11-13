@@ -1,0 +1,169 @@
+.kiosk-header {
+  height: 120px;
+  background: linear-gradient(135deg, #ffffff 0%, #f8f9fb 100%);
+  backdrop-filter: blur(20px);
+  border-bottom: 3px solid #0066cc;
+  box-shadow: 0 2px 16px rgba(0, 102, 204, 0.08);
+  position: relative;
+  z-index: 100;
+}
+
+[data-theme="dark"] .kiosk-header {
+  background: linear-gradient(135deg, rgba(37, 45, 61, 0.98) 0%, rgba(26, 35, 50, 0.98) 100%);
+  border-bottom-color: rgba(0, 102, 204, 0.6);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.header-content {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2.5rem;
+  gap: 2rem;
+}
+
+/* Brand Section - Logo Only */
+.header-brand {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-width: 150px;
+}
+
+.brand-logo {
+  height: 60px;
+  width: auto;
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-logo img {
+  height: 100%;
+  width: auto;
+  object-fit: contain;
+  filter: brightness(1.05);
+}
+
+/* Remove brand text styles since logo is now standalone */
+
+/* Center Title */
+.header-title {
+  flex: 1;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: center;
+}
+
+.header-title span {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #0066cc;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+}
+
+.header-subtitle {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+  margin: 0;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Header Actions */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.625rem 1.25rem;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+[data-theme="light"] .status-badge {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.status-badge svg {
+  color: var(--status-color);
+}
+
+.theme-toggle {
+  width: var(--touch-size);
+  height: var(--touch-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f0f4f8;
+  border: 2px solid #d1d9e6;
+  border-radius: 12px;
+  color: #0066cc;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+[data-theme="dark"] .theme-toggle {
+  background: rgba(0, 102, 204, 0.1);
+  border-color: rgba(0, 102, 204, 0.3);
+  color: #3385d6;
+}
+
+.theme-toggle:hover {
+  background: #e3e9f0;
+  border-color: #0066cc;
+  transform: scale(1.05);
+}
+
+[data-theme="dark"] .theme-toggle:hover {
+  background: rgba(0, 102, 204, 0.2);
+  border-color: rgba(0, 102, 204, 0.5);
+}
+
+.theme-toggle:active {
+  transform: scale(0.95);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .kiosk-header {
+    height: 100px;
+  }
+  
+  .header-content {
+    padding: 0 1.5rem;
+  }
+  
+  .brand-logo {
+    height: 48px;
+  }
+  
+  .header-title span {
+    font-size: 1rem;
+  }
+  
+  .header-subtitle {
+    display: none;
+  }
+}
+

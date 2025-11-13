@@ -1,0 +1,328 @@
+/* Welcome Screen - Apple-inspired design */
+.welcome-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1000;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.welcome-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    135deg,
+    #0f172a 0%,
+    #13233f 25%,
+    #1a3356 50%,
+    #1f416a 75%,
+    #24537d 100%
+  );
+  animation: gradientShift 10s ease-in-out infinite;
+}
+
+@keyframes gradientShift {
+  0%, 100% {
+    background: linear-gradient(
+      135deg,
+      #0f172a 0%,
+      #13233f 25%,
+      #1a3356 50%,
+      #1f416a 75%,
+      #24537d 100%
+    );
+  }
+  50% {
+    background: linear-gradient(
+      135deg,
+      #12345a 0%,
+      #18476f 25%,
+      #1f5d86 50%,
+      #1b3d63 75%,
+      #112540 100%
+    );
+  }
+}
+
+.gradient-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    45deg,
+    rgba(15, 25, 40, 0.35) 0%,
+    rgba(10, 22, 37, 0.15) 100%
+  );
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* Floating particles */
+.particles {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.6);
+  border-radius: 50%;
+  animation: float 8s ease-in-out infinite;
+}
+
+.particle-1 { left: 10%; animation-delay: 0s; }
+.particle-2 { left: 20%; animation-delay: 1s; }
+.particle-3 { left: 30%; animation-delay: 2s; }
+.particle-4 { left: 40%; animation-delay: 3s; }
+.particle-5 { left: 50%; animation-delay: 4s; }
+.particle-6 { left: 60%; animation-delay: 0.5s; }
+.particle-7 { left: 70%; animation-delay: 1.5s; }
+.particle-8 { left: 80%; animation-delay: 2.5s; }
+.particle-9 { left: 90%; animation-delay: 3.5s; }
+.particle-10 { left: 15%; animation-delay: 0.8s; }
+.particle-11 { left: 25%; animation-delay: 1.8s; }
+.particle-12 { left: 35%; animation-delay: 2.8s; }
+.particle-13 { left: 45%; animation-delay: 3.8s; }
+.particle-14 { left: 55%; animation-delay: 4.8s; }
+.particle-15 { left: 65%; animation-delay: 0.3s; }
+.particle-16 { left: 75%; animation-delay: 1.3s; }
+.particle-17 { left: 85%; animation-delay: 2.3s; }
+.particle-18 { left: 95%; animation-delay: 3.3s; }
+.particle-19 { left: 5%; animation-delay: 4.3s; }
+.particle-20 { left: 95%; animation-delay: 1.1s; }
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(100vh) rotate(0deg);
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-100px) rotate(360deg);
+    opacity: 0;
+  }
+}
+
+/* Main content */
+.welcome-content {
+  position: relative;
+  z-index: 10;
+  text-align: center;
+  max-width: 800px;
+  padding: 2rem;
+  color: white;
+}
+
+.welcome-hero {
+  margin-bottom: 3rem;
+}
+
+.welcome-logo {
+  width: 120px;
+  height: 120px;
+  margin: 0 auto 2rem;
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 
+    0 20px 40px rgba(0, 0, 0, 0.1),
+    0 8px 16px rgba(0, 0, 0, 0.1),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.welcome-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.welcome-title {
+  font-size: 3rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  background: linear-gradient(135deg, #f4f7fb, #dbe3ed);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.2;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.welcome-subtitle {
+  font-size: 1.25rem;
+  font-weight: 400;
+  margin-bottom: 2rem;
+  color: rgba(232, 236, 242, 0.85);
+  line-height: 1.5;
+}
+
+/* Loading animation */
+.welcome-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.loading-spinner {
+  position: relative;
+  width: 60px;
+  height: 60px;
+}
+
+.spinner-ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  border-radius: 50%;
+  border-top-color: rgba(27, 132, 184, 0.7);
+  animation: spin 1s linear infinite;
+}
+
+.spinner-ring:nth-child(2) {
+  width: 80%;
+  height: 80%;
+  top: 10%;
+  left: 10%;
+  animation-delay: 0.1s;
+  border-top-color: rgba(27, 132, 184, 0.5);
+}
+
+.spinner-ring:nth-child(3) {
+  width: 60%;
+  height: 60%;
+  top: 20%;
+  left: 20%;
+  animation-delay: 0.2s;
+  border-top-color: rgba(27, 132, 184, 0.35);
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-text {
+  font-size: 1rem;
+  font-weight: 500;
+  opacity: 0.8;
+  margin: 0;
+}
+
+/* Welcome stats */
+.welcome-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 2rem;
+  margin-top: 3rem;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1.5rem;
+  background: linear-gradient(160deg, rgba(10, 35, 66, 0.6) 0%, rgba(10, 35, 66, 0.25) 100%);
+  border-radius: 16px;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.3s ease;
+}
+
+.stat-item:hover {
+  transform: translateY(-4px);
+  background: linear-gradient(160deg, rgba(10, 35, 66, 0.75) 0%, rgba(10, 35, 66, 0.35) 100%);
+}
+
+.stat-number {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: 0.5rem;
+  background: linear-gradient(135deg, #f5f8fc, #d7dfe9);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.stat-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: rgba(223, 231, 240, 0.85);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .welcome-content {
+    padding: 1rem;
+  }
+  
+  .welcome-title {
+    font-size: 2rem;
+  }
+  
+  .welcome-subtitle {
+    font-size: 1rem;
+  }
+  
+  .welcome-stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+  }
+  
+  .stat-item {
+    padding: 1rem;
+  }
+  
+  .stat-number {
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .welcome-logo {
+    width: 80px;
+    height: 80px;
+  }
+  
+  .welcome-title {
+    font-size: 1.75rem;
+  }
+  
+  .welcome-stats {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+}

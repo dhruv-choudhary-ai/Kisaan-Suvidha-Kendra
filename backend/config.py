@@ -24,7 +24,7 @@ class Config:
     AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION")
     
     # Frontend Configuration
-    FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:5173")
+    FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")  # Updated for modern-kiosk-ui
     
     # Voice Configuration
     ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # Default Hindi voice

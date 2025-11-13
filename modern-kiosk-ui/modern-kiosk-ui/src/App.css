@@ -1,0 +1,279 @@
+/* Kiosk Layout - 1080x1920 Split Screen */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  /* Removed max-width/height restrictions for true full-screen kiosk */
+  /* max-width: 1080px; */
+  /* max-height: 1920px; */
+  /* margin: 0 auto; */
+  background: var(--background);
+  overflow: hidden;
+  position: relative;
+  transition: background 0.3s ease, color 0.3s ease;
+  /* Standard touch target size for kiosk UI */
+  --touch-size: 56px;
+}
+
+/* Light Theme (Default - Professional NASSCOM Style) */
+.app.light {
+  --background: #eef2f6;
+  --surface: #ffffff;
+  --surface-light: #f5f7fb;
+  --surface-dark: #e1e7ef;
+  --border: #ccd4de;
+  --text-primary: #1c2430;
+  --text-secondary: #445469;
+  --text-muted: #7b8797;
+}
+
+/* Dark Theme */
+.app.dark {
+  --background: #0f1724;
+  --surface: #182231;
+  --surface-light: #1f2d40;
+  --surface-dark: #0b141f;
+  --border: #243245;
+  --text-primary: #f3f6fb;
+  --text-secondary: #c0ccdb;
+  --text-muted: #8c98aa;
+}
+
+/* Kiosk Main Content Area - Avatar fills full width initially */
+.kiosk-main {
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+}
+
+/* Avatar panel - full width by default */
+.kiosk-main .avatar-panel {
+  flex: 1;
+  width: 100%;
+  transition: flex 0.6s cubic-bezier(0.4, 0, 0.2, 1), width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Content panel - hidden by default, slides in from right */
+.kiosk-main .content-panel {
+  flex: 0;
+  width: 0;
+  transition: flex 0.6s cubic-bezier(0.4, 0, 0.2, 1), width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden; /* Hidden when collapsed */
+}
+
+/* When content is active - Avatar takes minimum 50%, content takes remaining */
+.kiosk-main.content-active .avatar-panel {
+  flex: 0 0 50%;
+  min-width: 50%;
+  width: 50%;
+}
+
+.kiosk-main.content-active .content-panel {
+  flex: 0 0 50%;
+  min-width: 50%;
+  width: 50%;
+  overflow: visible; /* Allow scrolling when active */
+}
+
+/* Animated divider - only visible when content is active */
+.kiosk-main::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--primary) 20%,
+    var(--secondary) 50%,
+    var(--primary) 80%,
+    transparent
+  );
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+  transition: opacity 0.6s ease;
+}
+
+.kiosk-main.content-active::after {
+  opacity: 0.4;
+}
+
+/* Responsive adjustments for different screen sizes */
+
+/* Large tablets and small laptops */
+@media (max-width: 1200px) {
+  .kiosk-main.content-active .avatar-panel {
+    flex: 0 0 45%;
+    width: 45%;
+  }
+
+  .kiosk-main.content-active .content-panel {
+    flex: 0 0 55%;
+    width: 55%;
+  }
+}
+
+/* Standard tablets */
+@media (max-width: 1024px) {
+  .kiosk-main.content-active .avatar-panel {
+    flex: 0 0 40%;
+    width: 40%;
+  }
+
+  .kiosk-main.content-active .content-panel {
+    flex: 0 0 60%;
+    width: 60%;
+  }
+}
+
+/* Portrait tablets and large phones */
+@media (max-width: 768px) {
+  .kiosk-main {
+    flex-direction: column;
+  }
+  
+  .kiosk-main .avatar-panel {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+  }
+  
+  .kiosk-main .content-panel {
+    flex: 0;
+    width: 100%;
+    height: 0;
+  }
+  
+  .kiosk-main.content-active .avatar-panel {
+    flex: 0 0 45%;
+    width: 100%;
+    height: 45%;
+  }
+  
+  .kiosk-main.content-active .content-panel {
+    flex: 0 0 55%;
+    width: 100%;
+    height: 55%;
+  }
+  
+  .kiosk-main::after {
+    left: 0;
+    right: 0;
+    top: 45%;
+    width: auto;
+    height: 2px;
+    background: linear-gradient(
+      to right,
+      transparent,
+      var(--primary) 20%,
+      var(--secondary) 50%,
+      var(--primary) 80%,
+      transparent
+    );
+  }
+}
+
+/* Small tablets and phones */
+@media (max-width: 640px) {
+  .kiosk-main.content-active .avatar-panel {
+    flex: 0 0 40%;
+    height: 40%;
+  }
+  
+  .kiosk-main.content-active .content-panel {
+    flex: 0 0 60%;
+    height: 60%;
+  }
+  
+  .kiosk-main::after {
+    top: 40%;
+  }
+}
+
+/* Mobile devices */
+@media (max-width: 480px) {
+  .app {
+    --touch-size: 48px;
+  }
+  
+  .kiosk-main.content-active .avatar-panel {
+    flex: 0 0 35%;
+    height: 35%;
+  }
+  
+  .kiosk-main.content-active .content-panel {
+    flex: 0 0 65%;
+    height: 65%;
+  }
+  
+  .kiosk-main::after {
+    top: 35%;
+  }
+}
+
+/* Landscape orientation adjustments */
+@media (max-width: 768px) and (orientation: landscape) {
+  .kiosk-main {
+    flex-direction: row;
+  }
+  
+  .kiosk-main .avatar-panel {
+    width: 100%;
+    height: 100%;
+  }
+  
+  .kiosk-main .content-panel {
+    width: 0;
+    height: 100%;
+  }
+  
+  .kiosk-main.content-active .avatar-panel {
+    flex: 0 0 50%;
+    width: 50%;
+    height: 100%;
+  }
+  
+  .kiosk-main.content-active .content-panel {
+    flex: 0 0 50%;
+    width: 50%;
+    height: 100%;
+  }
+  
+  .kiosk-main::after {
+    left: 50%;
+    right: auto;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    height: auto;
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      var(--primary) 20%,
+      var(--secondary) 50%,
+      var(--primary) 80%,
+      transparent
+    );
+  }
+}
+
+/* High resolution displays */
+@media (min-resolution: 2dppx), (min-resolution: 192dpi) {
+  .kiosk-main::after {
+    width: 1px;
+  }
+  
+  @media (max-width: 768px) {
+    .kiosk-main::after {
+      height: 1px;
+      width: auto;
+    }
+  }
+}
