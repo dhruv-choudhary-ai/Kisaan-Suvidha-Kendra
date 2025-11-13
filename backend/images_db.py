@@ -9,8 +9,13 @@ import os
 import logging
 from typing import List, Dict, Optional
 from contextlib import contextmanager
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# Get products directory path
+PRODUCTS_DIR = Path(__file__).parent / "products"
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 class ImagesDatabase:
     """Local database for storing and retrieving product images"""
@@ -82,8 +87,88 @@ class ImagesDatabase:
             
             logger.info("Image database initialized")
     
+    def _scan_local_products(self, cursor):
+        """Scan products directory and add local files to database"""
+        if not PRODUCTS_DIR.exists():
+            logger.warning(f"Products directory not found: {PRODUCTS_DIR}")
+            return
+        
+        logger.info(f"Scanning local products directory: {PRODUCTS_DIR}")
+        
+        # Mapping of filenames to product info
+        local_products = {
+            "45kg-GNFC-Technical-Grade-Urea": {
+                "name": "Urea",
+                "category": "fertilizer",
+                "keywords": "urea,46-0-0,nitrogen fertilizer,यूरिया,GNFC,technical grade",
+                "title": "GNFC Technical Grade Urea 45kg"
+            },
+            "neem manure": {
+                "name": "Neem Manure",
+                "category": "fertilizer",
+                "keywords": "neem,organic,manure,जैविक खाद,नीम खाद",
+                "title": "GNFC Neem Organic Manure 1kg"
+            },
+            "Gnfc-Acetic-Acid": {
+                "name": "Acetic Acid",
+                "category": "chemical",
+                "keywords": "acetic acid,chemical,GNFC",
+                "title": "GNFC Acetic Acid"
+            }
+        }
+        
+        # Scan directory
+        added_count = 0
+        for file_path in PRODUCTS_DIR.iterdir():
+            if file_path.is_file() and file_path.suffix.lower() in ['.jpg', '.jpeg', '.png', '.webp']:
+                filename_base = file_path.stem  # Get filename without extension
+                
+                # Find matching product info
+                product_info = None
+                for key, info in local_products.items():
+                    if key.lower() in filename_base.lower():
+                        product_info = info
+                        break
+                
+                if not product_info:
+                    # Generic product info
+                    product_info = {
+                        "name": filename_base.replace("-", " ").replace("_", " ").title(),
+                        "category": "product",
+                        "keywords": filename_base.lower(),
+                        "title": filename_base.replace("-", " ").replace("_", " ").title()
+                    }
+                
+                # Check if product already exists
+                cursor.execute(
+                    "SELECT id FROM products WHERE name = ? AND category = ?",
+                    (product_info["name"], product_info["category"])
+                )
+                existing = cursor.fetchone()
+                
+                if existing:
+                    product_id = existing[0]
+                else:
+                    # Insert product
+                    cursor.execute(
+                        "INSERT INTO products (name, category, keywords) VALUES (?, ?, ?)",
+                        (product_info["name"], product_info["category"], product_info["keywords"])
+                    )
+                    product_id = cursor.lastrowid
+                
+                # Insert local image with localhost URL
+                local_url = f"{BACKEND_URL}/products/{file_path.name}"
+                cursor.execute(
+                    "INSERT INTO images (product_id, url, title, source, is_primary) VALUES (?, ?, ?, ?, ?)",
+                    (product_id, local_url, product_info["title"], "Local Storage", 1)
+                )
+                added_count += 1
+                logger.info(f"Added local product: {product_info['name']} -> {file_path.name}")
+        
+        logger.info(f"Added {added_count} local product images")
+    
     def _populate_initial_data(self):
-        """Populate database with common agricultural products"""
+        """Populate database with common agricultural products and local files"""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
@@ -94,6 +179,10 @@ class ImagesDatabase:
             
             logger.info("Populating initial image data...")
             
+            # STEP 1: Scan local products directory and add local files first
+            self._scan_local_products(cursor)
+            
+            # STEP 2: Add common web-based fallback images
             # Fertilizers
             fertilizers = [
                 {
@@ -287,12 +376,16 @@ class ImagesDatabase:
             
             images = []
             for row in rows:
+                # Check if URL is local or web
+                is_local = row["url"].startswith(BACKEND_URL)
+                
                 images.append({
                     "url": row["url"],
                     "title": row["title"] or row["product_name"],
                     "source": row["source"] or "Local DB",
                     "thumbnail": "",
-                    "local": True  # Mark as from local DB
+                    "local": is_local,  # Mark local vs web images
+                    "trusted": is_local  # Local images are always trusted
                 })
             
             logger.info(f"Found {len(images)} images in local DB for query: {query}")

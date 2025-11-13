@@ -1,9 +1,11 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import logging
 import uuid
 from datetime import datetime
+from pathlib import Path
 from config import Config
 from db import get_db_connection
 from models import (
@@ -29,6 +31,10 @@ active_sessions: Dict[str, SessionData] = {}
 # Initialize camera-based disease detector
 disease_camera = CropDiseaseCamera()
 
+# Mount static files for product images
+PRODUCTS_DIR = Path(__file__).parent / "products"
+PRODUCTS_DIR.mkdir(exist_ok=True)  # Ensure directory exists
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[Config.FRONTEND_ORIGIN, "*"],
@@ -40,6 +46,22 @@ app.add_middleware(
 @app.get("/")
 async def root():
     return {"message": "नमस्ते! Welcome to Kisaan Voice Assistant API 🌾"}
+
+@app.get("/products/{filename}")
+async def get_product_image(filename: str):
+    """
+    Serve product images from local storage
+    Used for fertilizers, pesticides, and other agricultural products
+    """
+    file_path = PRODUCTS_DIR / filename
+    
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"Product image not found: {filename}")
+    
+    if not file_path.is_file():
+        raise HTTPException(status_code=400, detail="Invalid file path")
+    
+    return FileResponse(file_path)
 
 @app.post("/voice/start-session")
 async def start_voice_session():
